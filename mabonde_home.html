@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MABONDE HOME</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入字体：Inter (Apple高级感) + DotGothic16 (像素/独立游戏感) + Noto Serif SC (故事感) -->
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Inter:wght@300;400;600&family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --apple-ease: cubic-bezier(0.16, 1, 0.3, 1);
+            --bg-dark: #0a0a0c;
+            --glass-bg: rgba(20, 20, 25, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-main: #f0f0f5;
+            --text-sub: #8a8a9a;
+            --accent: #d4af37; /* 塞尔达式的暗金色 */
+            --accent-glow: rgba(212, 175, 55, 0.3);
+            
+            /* 稀有度颜色 */
+            --rarity-common: #a3a3a3;
+            --rarity-rare: #3b82f6;
+            --rarity-epic: #a855f7;
+            --rarity-legendary: #eab308;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body, html {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Inter', -apple-system, sans-serif;
+            overflow: hidden; /* 禁止全局滚动，在内部容器滚动 */
+            overscroll-behavior-y: none;
+        }
+
+        /* 字体工具类 */
+        .font-pixel { font-family: 'DotGothic16', monospace; }
+        .font-serif { font-family: 'Noto Serif SC', serif; }
+
+        /* 沉浸式动态背景 */
+        #world-bg {
+            position: absolute; inset: -5%; width: 110%; height: 110%;
+            /* 使用一张充满自然气息的远山森林图片，结合暗色遮罩 */
+            background-image: linear-gradient(to bottom, rgba(10,10,12,0.3) 0%, rgba(10,10,12,0.95) 100%), 
+                              url('https://images.unsplash.com/photo-1445217143695-467124038776?q=80&w=2033&auto=format&fit=crop');
+            background-size: cover;
+            background-position: center;
+            z-index: 0;
+            transition: transform 3s var(--apple-ease), filter 2s ease;
+            filter: blur(2px) brightness(0.8);
+        }
+        /* 镜头推进效果 */
+        #world-bg.zoomed-in {
+            transform: scale(1.05);
+            filter: blur(6px) brightness(0.6);
+        }
+
+        /* 粒子画布 */
+        #particles { position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0.6; }
+
+        /* 视图容器机制 */
+        .view-layer {
+            position: absolute; inset: 0; z-index: 10;
+            display: flex; flex-direction: column;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.8s var(--apple-ease), transform 0.8s var(--apple-ease);
+            transform: scale(0.98) translateY(10px);
+        }
+        .view-layer.active {
+            opacity: 1; pointer-events: auto;
+            transform: scale(1) translateY(0);
+        }
+
+        /* 玻璃拟物组件 (参考了原型的质感) */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+
+        .glass-btn {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 999px;
+            transition: all 0.3s ease;
+        }
+        .glass-btn:active { transform: scale(0.95); background: rgba(255,255,255,0.2); }
+
+        /* 隐藏滚动条但保留滚动功能 */
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 动画关键帧 */
+        @keyframes breathe {
+            0% { opacity: 0.8; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.02); }
+            100% { opacity: 0.8; transform: scale(1); }
+        }
+        .animate-breathe { animation: breathe 4s infinite ease-in-out; }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+            100% { transform: translateY(0px); }
+        }
+        .animate-float { animation: float 6s infinite ease-in-out; }
+
+        /* 卡片悬浮特效 */
+        .room-card { transition: all 0.4s var(--apple-ease); cursor: pointer; }
+        .room-card:active { transform: scale(0.97); }
+        
+        .recipe-card {
+            transition: all 0.3s ease; border: 1px solid transparent;
+        }
+        .recipe-card:active { transform: scale(0.98); border-color: rgba(255,255,255,0.2); }
+
+    </style>
+</head>
+<body>
+
+    <!-- 背景层 -->
+    <div id="world-bg"></div>
+    <canvas id="particles"></canvas>
+
+    <!-- UI 顶层遮罩 (处理刘海屏、安全区) -->
+    <div class="fixed inset-0 pointer-events-none z-50 p-6 flex flex-col justify-between">
+        <div class="flex justify-between items-start opacity-0 transition-opacity duration-1000" id="global-header">
+            <!-- 玩家状态栏 -->
+            <div class="glass-btn px-4 py-2 flex items-center gap-3 pointer-events-auto cursor-pointer" onclick="backToHome()">
+                <div class="w-8 h-8 rounded-full bg-gray-600 border border-gray-400 overflow-hidden">
+                    <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80" alt="Avatar" class="w-full h-full object-cover">
+                </div>
+                <div>
+                    <div class="text-xs font-pixel text-gray-300 tracking-wider">TRAVELER</div>
+                    <div class="text-sm font-bold">Lv.1 Blue</div>
+                </div>
+            </div>
+            
+            <!-- 天气与状态 -->
+            <div class="text-right">
+                <div class="text-xl font-pixel drop-shadow-lg" id="mini-clock">10:56</div>
+                <div class="text-xs text-gray-300 font-pixel mt-1 tracking-widest uppercase flex items-center justify-end gap-1">
+                    <span id="mini-weather">Cloudy</span> ☁️
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= VIEW 1: WELCOME SCREEN ================= -->
+    <div id="view-welcome" class="view-layer active justify-center items-center">
+        
+        <!-- 顶部信息 -->
+        <div class="absolute top-12 left-0 right-0 flex justify-center items-center gap-2 font-pixel text-xs tracking-[0.2em] text-gray-300 drop-shadow-md">
+            <span>DAY 001</span> • <span id="welcome-date">TUESDAY</span> • <span>CLOUDY</span>
+        </div>
+
+        <!-- 巨大的像素时钟 -->
+        <div class="text-[5rem] md:text-[8rem] font-pixel text-white drop-shadow-[0_0_30px_rgba(255,255,255,0.3)] leading-none mt-[-10vh]" id="main-clock">
+            10:56
+        </div>
+
+        <!-- 欢迎标语 -->
+        <div class="mt-8 text-center animate-float">
+            <h1 class="font-serif text-3xl md:text-4xl tracking-widest text-white drop-shadow-lg">欢迎来到马邦德的家</h1>
+            <p class="mt-4 text-sm font-pixel text-gray-300 tracking-wider">The kitchen is open.</p>
+        </div>
+
+        <!-- 进入按钮 -->
+        <div class="absolute bottom-20 left-0 right-0 flex justify-center">
+            <button onclick="enterWorld()" class="glass-btn px-10 py-4 font-pixel tracking-[0.3em] text-sm animate-breathe flex items-center gap-3">
+                ENTER <span class="text-[0.6rem]">▶</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ================= VIEW 2: WORLD MAP (ROOMS) ================= -->
+    <div id="view-home" class="view-layer pt-32 pb-10 px-6 hide-scroll overflow-y-auto">
+        
+        <div class="max-w-md mx-auto w-full">
+            <div class="flex justify-between items-end mb-8 pl-2">
+                <h2 class="font-pixel text-2xl tracking-widest">MAP</h2>
+                <span class="font-pixel text-xs text-gray-400">4 ROOMS UNLOCKED</span>
+            </div>
+
+            <!-- 房间列表 (参考原型图1的布局) -->
+            <div class="space-y-5">
+                
+                <!-- 厨房 -->
+                <div class="glass-panel room-card p-5 flex items-center gap-6 relative overflow-hidden" onclick="enterRoom('kitchen')">
+                    <div class="absolute inset-0 bg-gradient-to-r from-transparent to-[rgba(255,255,255,0.03)] pointer-events-none"></div>
+                    <!-- 左侧像素Icon -->
+                    <div class="w-16 h-16 bg-black/40 rounded-xl border border-white/10 flex items-center justify-center font-pixel text-4xl text-gray-500 relative">
+                        1
+                        <span class="absolute top-1 left-1 text-[10px] text-gray-400">EAT</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-bold font-serif mb-1">Recipe Book</h3>
+                        <p class="text-xs text-gray-400 font-pixel">The Kitchen · 肚子饿了就来这里</p>
+                    </div>
+                    <div class="text-gray-500">›</div>
+                </div>
+
+                <!-- 茶室 -->
+                <div class="glass-panel room-card p-5 flex items-center gap-6 relative overflow-hidden" onclick="enterRoom('teahouse')">
+                    <div class="w-16 h-16 bg-black/40 rounded-xl border border-white/10 flex items-center justify-center font-pixel text-4xl text-[var(--accent)] opacity-80 relative">
+                        2
+                        <span class="absolute top-1 left-1 text-[10px] text-[var(--accent)]">DRK</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-bold font-serif mb-1">Tea House</h3>
+                        <p class="text-xs text-gray-400 font-pixel">这里不打烊，随便喝一杯</p>
+                    </div>
+                    <div class="text-gray-500">›</div>
+                </div>
+
+                <!-- 音乐房 -->
+                <div class="glass-panel room-card p-5 flex items-center gap-6 relative overflow-hidden">
+                    <div class="w-16 h-16 bg-black/40 rounded-xl border border-white/10 flex items-center justify-center font-pixel text-4xl text-gray-500 relative">
+                        3
+                        <span class="absolute top-1 left-1 text-[10px] text-gray-400">BGM</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-bold font-serif mb-1">Music Room</h3>
+                        <p class="text-xs text-gray-400 font-pixel">必须听点什么</p>
+                    </div>
+                    <div class="text-gray-500">›</div>
+                </div>
+
+                <!-- 故事书 -->
+                <div class="glass-panel room-card p-5 flex items-center gap-6 relative overflow-hidden">
+                    <div class="w-16 h-16 bg-black/40 rounded-xl border border-white/10 flex items-center justify-center font-pixel text-4xl text-gray-500 relative">
+                        4
+                        <span class="absolute top-1 left-1 text-[10px] text-gray-400">LOG</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-lg font-bold font-serif mb-1">Story Book</h3>
+                        <p class="text-xs text-gray-400 font-pixel">我们的记忆存档点</p>
+                    </div>
+                    <div class="text-gray-500">›</div>
+                </div>
+
+            </div>
+
+            <div class="mt-12 flex justify-between font-pixel text-[10px] text-gray-500 tracking-widest px-2">
+                <span>V 1.0.0 MABONDE</span>
+                <span>SYSTEM ONLINE</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= VIEW 3: KITCHEN ================= -->
+    <div id="view-kitchen" class="view-layer pt-28 pb-32 px-4 hide-scroll overflow-y-auto">
+        <div class="max-w-md mx-auto w-full">
+            
+            <div class="flex justify-between items-end mb-6 pl-2">
+                <div>
+                    <h2 class="font-serif text-3xl tracking-wide mb-1">Recipe Book</h2>
+                    <p class="font-pixel text-xs text-gray-400 tracking-widest">HOPE YOU'RE HUNGRY.</p>
+                </div>
+            </div>
+
+            <!-- 推荐语 (天气系统联动) -->
+            <div class="mb-6 p-4 rounded-2xl bg-gradient-to-br from-[rgba(59,130,246,0.15)] to-transparent border border-blue-500/20 backdrop-blur-md">
+                <div class="flex items-start gap-3">
+                    <div class="text-2xl mt-1">🌧️</div>
+                    <div>
+                        <div class="text-xs font-pixel text-blue-400 mb-1">WEATHER BUFF ACTIVE</div>
+                        <p class="text-sm font-serif text-gray-200">窗外正在下雨，或许一碗热气腾腾的「豌豆丸子汤」能为你恢复理智。</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 料理图鉴列表 -->
+            <div class="space-y-4" id="recipe-list">
+                <!-- 菜品由 JS 动态渲染 -->
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ================= VIEW 4: TEA HOUSE ================= -->
+    <div id="view-teahouse" class="view-layer pt-28 pb-32 px-4 hide-scroll overflow-y-auto">
+        <div class="max-w-md mx-auto w-full">
+            
+            <div class="flex justify-between items-end mb-6 pl-2">
+                <div>
+                    <h2 class="font-serif text-3xl tracking-wide mb-1 text-[var(--accent)]">Tea House</h2>
+                    <p class="font-pixel text-xs text-gray-400 tracking-widest">TAKE A SEAT. BREATHE.</p>
+                </div>
+            </div>
+
+            <!-- 氛围提示语 -->
+            <div class="mb-6 p-4 rounded-2xl bg-gradient-to-br from-[rgba(212,175,55,0.1)] to-transparent border border-[var(--accent)]/20 backdrop-blur-md">
+                <div class="flex items-start gap-3">
+                    <div class="text-2xl mt-1">🍃</div>
+                    <div>
+                        <div class="text-xs font-pixel text-[var(--accent)] mb-1">SYSTEM MESSAGE</div>
+                        <p class="text-sm font-serif text-gray-200">水正在烧开。这里的时间流逝得很慢，挑一款你喜欢的茶吧。</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 饮品图鉴列表 -->
+            <div class="space-y-4" id="tea-list">
+                <!-- 茶饮由 JS 动态渲染 -->
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ================= UI FLOATING BUTTON (INVENTORY) ================= -->
+    <div id="btn-inventory" class="fixed bottom-8 left-1/2 transform -translate-x-1/2 z-40 opacity-0 pointer-events-none transition-all duration-500">
+        <button onclick="openInventory()" class="glass-panel px-6 py-3 rounded-full flex items-center gap-4 text-sm font-bold font-pixel tracking-wider shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+            <span class="text-gray-400">INVENTORY</span>
+            <div class="w-px h-4 bg-gray-600"></div>
+            <span class="text-[var(--accent)]" id="inv-count">0 ITEMS</span>
+        </button>
+    </div>
+
+    <!-- ================= INVENTORY / QUEST SHEET ================= -->
+    <div id="sheet-inventory" class="fixed inset-0 z-50 flex items-end justify-center pointer-events-none">
+        <!-- 暗黑遮罩 -->
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-400" id="inv-backdrop" onclick="closeInventory()"></div>
+        
+        <!-- 弹窗本体 -->
+        <div class="glass-panel w-full max-w-md rounded-b-none rounded-t-3xl border-b-0 p-6 transform translate-y-full transition-transform duration-500 relative flex flex-col max-h-[85vh]" id="inv-panel">
+            
+            <div class="w-12 h-1.5 bg-gray-600 rounded-full mx-auto mb-6 opacity-50"></div>
+            
+            <h2 class="font-pixel text-xl tracking-widest text-center text-gray-300 mb-8">QUEST DETAILS</h2>
+            
+            <div class="flex-1 overflow-y-auto hide-scroll mb-6">
+                <div class="text-xs font-pixel text-gray-500 mb-3 border-b border-gray-700/50 pb-2">SELECTED RECIPES</div>
+                <div id="inv-items" class="space-y-4">
+                    <!-- 选中物品由 JS 渲染 -->
+                </div>
+                
+                <div class="mt-8 text-xs font-pixel text-gray-500 mb-3 border-b border-gray-700/50 pb-2">QUEST NOTES</div>
+                <textarea id="quest-note" class="w-full bg-black/30 border border-white/10 rounded-xl p-4 text-sm text-gray-300 font-serif outline-none focus:border-[var(--accent)] transition-colors h-24 placeholder-gray-600" placeholder="有什么特殊要求吗？(忌口、口味偏好...)"></textarea>
+            </div>
+
+            <button id="btn-submit-quest" onclick="submitQuest()" class="w-full py-4 rounded-2xl bg-white text-black font-pixel font-bold tracking-widest text-sm relative overflow-hidden group">
+                <span class="relative z-10">SEND TO KITCHEN</span>
+                <div class="absolute inset-0 bg-gray-200 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300 z-0"></div>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 系统状态字典 ---
+        const GameState = {
+            view: 'welcome', // welcome, home, kitchen
+            inventory: {},   // 存储选中物品数量 { dishId: qty }
+            player: {
+                name: 'Blue',
+                level: 1,
+                title: 'Traveler'
+            }
+        };
+
+        // --- 料理数据库 (模拟 API 数据) ---
+        const RECIPE_DB = [
+            {
+                id: 'r_01',
+                name: '红烧肉',
+                rarity: 'Legendary', // Common, Rare, Epic, Legendary
+                level: 8,
+                crafts: 38,
+                tags: ['HOT', 'Classic', 'Home'],
+                desc: 'A timeless classic. Restores 100 HP and greatly increases happiness.',
+                img: '🍖'
+            },
+            {
+                id: 'r_02',
+                name: '芦笋牛排',
+                rarity: 'Epic',
+                level: 5,
+                crafts: 12,
+                tags: ['Premium', 'Protein'],
+                desc: 'Perfectly seared. Grants +5 Strength buff for 4 hours.',
+                img: '🥩'
+            },
+            {
+                id: 'r_03',
+                name: '豌豆丸子汤',
+                rarity: 'Rare',
+                level: 3,
+                crafts: 54,
+                tags: ['Rainy Day', 'Heal'],
+                desc: 'Warm and comforting. Cures negative status ailments.',
+                img: '🍲'
+            },
+            {
+                id: 'r_04',
+                name: '随便喝一杯',
+                rarity: 'Common',
+                level: '?',
+                crafts: 99,
+                tags: ['Mystery', 'Drink'],
+                desc: 'Trust the bartender. Effects are completely unknown.',
+                img: '🍷'
+            }
+        ];
+
+        // --- 茶饮数据库 ---
+        const TEA_DB = [
+            {
+                id: 't_01',
+                name: 'MABONDE Cold Brew Green Tea',
+                rarity: 'Rare',
+                level: 3,
+                crafts: 128,
+                tags: ['REFRESH', 'DAILY', 'ENERGY'],
+                desc: 'A refreshing cold brew green tea. Boosts focus and restores energy during daytime travel. (+20 Energy buff)',
+                img: '🍵'
+            },
+            {
+                id: 't_02',
+                name: 'MABONDE Yunnan Black Tea',
+                rarity: 'Epic',
+                level: 5,
+                crafts: 64,
+                tags: ['WARM', 'RELAX', 'NIGHT'],
+                desc: 'Smooth Yunnan black tea with deep aroma. Perfect for nighttime relaxation and recovery. (+30 Calm / Improve Sleep)',
+                img: '🫖'
+            },
+            {
+                id: 't_03',
+                name: 'MABONDE Jasmine Cold Brew',
+                rarity: 'Legendary',
+                level: 8,
+                crafts: 21,
+                tags: ['FLOWER', 'MOOD', 'CREATIVE'],
+                desc: 'Floral jasmine cold brew tea. Enhances mood and creative thinking. (+Creativity / +Happiness buff)',
+                img: '🌸'
+            }
+        ];
+
+        // 全局物品检索助手
+        function getItemById(id) {
+            return RECIPE_DB.find(r => r.id === id) || TEA_DB.find(t => t.id === id);
+        }
+
+        // --- 辅助函数：获取稀有度颜色 ---
+        function getRarityColor(rarity) {
+            const colors = {
+                'Legendary': 'var(--rarity-legendary)',
+                'Epic': 'var(--rarity-epic)',
+                'Rare': 'var(--rarity-rare)',
+                'Common': 'var(--rarity-common)'
+            };
+            return colors[rarity] || 'white';
+        }
+
+        // --- 核心时钟与环境系统 ---
+        function updateEnvironment() {
+            const now = new Date();
+            const hs = String(now.getHours()).padStart(2, '0');
+            const ms = String(now.getMinutes()).padStart(2, '0');
+            const timeStr = `${hs}:${ms}`;
+            
+            document.getElementById('main-clock').textContent = timeStr;
+            document.getElementById('mini-clock').textContent = timeStr;
+
+            const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+            document.getElementById('welcome-date').textContent = days[now.getDay()];
+        }
+        setInterval(updateEnvironment, 1000);
+        updateEnvironment();
+
+        // --- 粒子系统 (增强空气感/呼吸感) ---
+        const canvas = document.getElementById('particles');
+        const ctx = canvas.getContext('2d');
+        let particlesArray = [];
+
+        function initCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            particlesArray = [];
+            for (let i = 0; i < 40; i++) {
+                particlesArray.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 2 + 0.5,
+                    speedY: Math.random() * 0.5 + 0.1,
+                    opacity: Math.random() * 0.5
+                });
+            }
+        }
+        
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < particlesArray.length; i++) {
+                let p = particlesArray[i];
+                ctx.fillStyle = `rgba(255, 255, 255, ${p.opacity})`;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                p.y -= p.speedY; // 向上飘动
+                if (p.y < 0) {
+                    p.y = canvas.height;
+                    p.x = Math.random() * canvas.width;
+                }
+            }
+            requestAnimationFrame(animateParticles);
+        }
+        window.addEventListener('resize', initCanvas);
+        initCanvas();
+        animateParticles();
+
+        // --- 视图切换机制 (电影级运镜) ---
+        function switchView(targetView) {
+            // 隐藏当前
+            document.querySelectorAll('.view-layer').forEach(el => el.classList.remove('active'));
+            
+            // 显示目标
+            document.getElementById(`view-${targetView}`).classList.add('active');
+            GameState.view = targetView;
+
+            // 环境变化联动
+            const worldBg = document.getElementById('world-bg');
+            const globalHeader = document.getElementById('global-header');
+            const inventoryBtn = document.getElementById('btn-inventory');
+            
+            if (targetView === 'welcome') {
+                worldBg.classList.remove('zoomed-in');
+                globalHeader.classList.remove('opacity-100');
+                inventoryBtn.classList.remove('opacity-100', 'pointer-events-auto');
+            } else {
+                worldBg.classList.add('zoomed-in');
+                globalHeader.classList.add('opacity-100');
+                
+                if (targetView === 'kitchen') {
+                    renderKitchen();
+                    checkInventoryBtn();
+                } else if (targetView === 'teahouse') {
+                    renderTeahouse();
+                    checkInventoryBtn();
+                } else {
+                    inventoryBtn.classList.remove('opacity-100', 'pointer-events-auto');
+                }
+            }
+        }
+
+        function enterWorld() { switchView('home'); }
+        function backToHome() { switchView('home'); }
+        function enterRoom(roomName) { 
+            if(roomName === 'kitchen') switchView('kitchen'); 
+            if(roomName === 'teahouse') switchView('teahouse');
+        }
+
+        // --- 渲染引擎 (通用卡片渲染) ---
+        function renderItems(database, containerId) {
+            const list = document.getElementById(containerId);
+            list.innerHTML = '';
+
+            database.forEach(item => {
+                const rColor = getRarityColor(item.rarity);
+                const qty = GameState.inventory[item.id] || 0;
+                
+                // 根据是否选择，改变边框高亮
+                const borderStyle = qty > 0 ? `border-color: ${rColor}; box-shadow: 0 0 15px ${rColor}20;` : '';
+
+                const cardHTML = `
+                    <div class="glass-panel recipe-card p-4 relative overflow-hidden flex flex-col" style="${borderStyle}">
+                        
+                        <!-- 头部：稀有度与等级 -->
+                        <div class="flex justify-between items-start mb-3">
+                            <div class="font-pixel text-[10px] uppercase tracking-widest px-2 py-1 rounded" style="background: ${rColor}20; color: ${rColor}">
+                                ${item.rarity}
+                            </div>
+                            <div class="font-pixel text-xs text-gray-400">
+                                LV.${item.level}
+                            </div>
+                        </div>
+
+                        <!-- 主体内容 -->
+                        <div class="flex items-center gap-4 mb-4">
+                            <!-- Emoji 槽位，模拟 3D 物品框 -->
+                            <div class="w-20 h-20 bg-black/60 rounded-xl border border-white/5 flex items-center justify-center text-4xl shadow-inner relative flex-shrink-0">
+                                ${item.img}
+                                <div class="absolute inset-0 bg-gradient-to-tr from-transparent to-white/10 rounded-xl"></div>
+                            </div>
+                            
+                            <div class="flex-1">
+                                <h3 class="font-serif text-xl font-bold mb-1 tracking-wide">${item.name}</h3>
+                                <div class="flex flex-wrap gap-1 mt-2">
+                                    ${item.tags.map(tag => `<span class="text-[9px] font-pixel bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-gray-400">${tag}</span>`).join('')}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <p class="text-xs text-gray-400 font-serif leading-relaxed mb-4 italic">"${item.desc}"</p>
+
+                        <!-- 底部数据与操作 -->
+                        <div class="flex justify-between items-end mt-auto pt-3 border-t border-white/5">
+                            <div class="font-pixel text-[10px] text-gray-500">CRAFTS: ${item.crafts}</div>
+                            
+                            <!-- 加减操作台 -->
+                            <div class="flex items-center gap-1 bg-black/40 rounded-full border border-white/10 p-1">
+                                <button onclick="updateItem('${item.id}', -1)" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 active:bg-white/10 transition-colors">-</button>
+                                <span class="w-6 text-center font-pixel text-sm">${qty}</span>
+                                <button onclick="updateItem('${item.id}', 1)" class="w-8 h-8 rounded-full flex items-center justify-center text-white active:bg-white/10 transition-colors">+</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                list.insertAdjacentHTML('beforeend', cardHTML);
+            });
+        }
+
+        function renderKitchen() { renderItems(RECIPE_DB, 'recipe-list'); }
+        function renderTeahouse() { renderItems(TEA_DB, 'tea-list'); }
+
+        // --- 背包逻辑 ---
+        function updateItem(id, delta) {
+            const current = GameState.inventory[id] || 0;
+            const next = current + delta;
+            
+            if (next <= 0) {
+                delete GameState.inventory[id];
+            } else {
+                GameState.inventory[id] = next;
+            }
+            
+            if (GameState.view === 'kitchen') renderKitchen();
+            if (GameState.view === 'teahouse') renderTeahouse();
+            checkInventoryBtn();
+        }
+
+        function getInventoryTotal() {
+            return Object.values(GameState.inventory).reduce((a, b) => a + b, 0);
+        }
+
+        function checkInventoryBtn() {
+            const btn = document.getElementById('btn-inventory');
+            const countStr = document.getElementById('inv-count');
+            const total = getInventoryTotal();
+            
+            // 在厨房和茶室都显示悬浮背包
+            if (GameState.view !== 'kitchen' && GameState.view !== 'teahouse') return; 
+            
+            if (total > 0) {
+                countStr.textContent = `${total} ITEM${total>1?'S':''}`;
+                btn.classList.add('opacity-100', 'pointer-events-auto', 'translate-y-0');
+                btn.classList.remove('translate-y-4');
+            } else {
+                btn.classList.remove('opacity-100', 'pointer-events-auto', 'translate-y-0');
+                btn.classList.add('translate-y-4');
+            }
+        }
+
+        // --- 背包/任务表单 UI ---
+        function openInventory() {
+            const mask = document.getElementById('sheet-inventory');
+            const backdrop = document.getElementById('inv-backdrop');
+            const panel = document.getElementById('inv-panel');
+            
+            // 渲染列表
+            const container = document.getElementById('inv-items');
+            container.innerHTML = '';
+            
+            Object.keys(GameState.inventory).forEach(id => {
+                const item = getItemById(id);
+                if (!item) return;
+                const qty = GameState.inventory[id];
+                const rColor = getRarityColor(item.rarity);
+                
+                container.insertAdjacentHTML('beforeend', `
+                    <div class="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                        <div class="flex items-center gap-3">
+                            <span class="text-2xl">${item.img}</span>
+                            <div>
+                                <div class="font-serif text-sm">${item.name}</div>
+                                <div class="font-pixel text-[9px]" style="color: ${rColor}">${item.rarity}</div>
+                            </div>
+                        </div>
+                        <div class="font-pixel text-lg text-white">x${qty}</div>
+                    </div>
+                `);
+            });
+
+            // 动画展开
+            mask.classList.add('pointer-events-auto');
+            backdrop.classList.add('opacity-100');
+            setTimeout(() => panel.classList.remove('translate-y-full'), 50);
+        }
+
+        function closeInventory() {
+            const mask = document.getElementById('sheet-inventory');
+            const backdrop = document.getElementById('inv-backdrop');
+            const panel = document.getElementById('inv-panel');
+            
+            panel.classList.add('translate-y-full');
+            backdrop.classList.remove('opacity-100');
+            setTimeout(() => mask.classList.remove('pointer-events-auto'), 500);
+        }
+
+        // --- 模拟提交任务 (游戏化文案) ---
+        function submitQuest() {
+            const btn = document.getElementById('btn-submit-quest');
+            btn.innerHTML = `<span class="font-pixel text-black">UPLOADING QUEST...</span>`;
+            
+            setTimeout(() => {
+                btn.innerHTML = `<span class="font-pixel text-black">QUEST RECEIVED</span>`;
+                btn.classList.add('bg-green-400');
+                
+                setTimeout(() => {
+                    GameState.inventory = {}; // 清空背包
+                    closeInventory();
+                    
+                    // 恢复按钮初始状态
+                    setTimeout(() => {
+                        btn.innerHTML = `<span class="relative z-10">SEND TO KITCHEN</span><div class="absolute inset-0 bg-gray-200 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300 z-0"></div>`;
+                        btn.classList.remove('bg-green-400');
+                        // 动态判断当前应该重新渲染哪个界面
+                        if (GameState.view === 'kitchen') renderKitchen();
+                        if (GameState.view === 'teahouse') renderTeahouse();
+                        checkInventoryBtn();
+                    }, 500);
+                    
+                }, 1500);
+            }, 1200);
+        }
+
+    </script>
+</body>
+</html>
